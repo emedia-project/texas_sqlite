@@ -1,8 +1,12 @@
 -module(texas_sqlite).
 
+-export([start/0]).
 -export([connect/5, exec/2, close/1]).
 -export([create_table/2]).
 -export([insert/3, select/4, update/4, delete/3]).
+
+start() ->
+  ok.
 
 connect(_User, _Password, _Server, _Port, Database) ->
   lager:info("Open database ~p", [Database]),

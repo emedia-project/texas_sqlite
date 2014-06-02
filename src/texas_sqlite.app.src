@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, {texas_sqlite_app, []}},
+  {mod, {}},
   {env, []}
  ]}.
