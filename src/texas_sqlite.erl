@@ -7,6 +7,7 @@
 
 -define(STRING_SEPARATOR, $').
 -define(STRING_QUOTE, $').
+-define(FIELD_SEPARATOR, none).
 
 -type connection() :: any().
 -type err() :: any().
@@ -29,8 +30,8 @@ connect(_User, _Password, _Server, _Port, Database, _Options) ->
 
 -spec close(connection()) -> ok | error.
 close(Conn) ->
-  esqlite3:exec("commit;", Conn),
-  case esqlite3:close(Conn) of
+  esqlite3:exec("commit;", texas:connection(Conn)),
+  case esqlite3:close(texas:connection(Conn)) of
     ok -> ok;
     {error, _} -> error
   end.
@@ -58,13 +59,13 @@ insert(Conn, Table, Record) ->
   {Fields, Values} = lists:foldl(fun(Field, {FieldsAcc, ValuesAcc}) ->
           case Record:Field() of
             undefined -> {FieldsAcc, ValuesAcc};
-            Value -> {FieldsAcc ++ [atom_to_list(Field)], 
+            Value -> {FieldsAcc ++ [texas_sql:to_sql_field(Field, ?FIELD_SEPARATOR)], 
                       ValuesAcc ++ [texas_sql:to_sql_string(Value, ?STRING_SEPARATOR, ?STRING_QUOTE)]}
           end
       end, {[], []}, Table:fields()),
   SQLCmd = sql(insert, atom_to_list(Table), Fields, Values),
   lager:debug("~s", [SQLCmd]),
-  case esqlite3:insert(SQLCmd, Conn) of
+  case esqlite3:insert(SQLCmd, texas:connection(Conn)) of
     {ok, ID} -> 
       case Table:table_pk_id() of
         {none, null} -> Record;
@@ -83,15 +84,15 @@ select(Conn, Table, Type, Clauses) ->
   lager:debug("~s", [SQLCmd]),
   case Type of
     first ->
-      {ok, Statement} = esqlite3:prepare(SQLCmd, Conn),
+      {ok, Statement} = esqlite3:prepare(SQLCmd, texas:connection(Conn)),
       case esqlite3:fetchone(Statement) of
         ok -> [];
-        Row -> Table:new(Assoc(esqlite3:column_names(Statement), Row))
+        Row -> Table:new(Conn, Assoc(esqlite3:column_names(Statement), Row))
       end;
     _ ->
-      case esqlite3:map(Assoc, SQLCmd, Conn) of
+      case esqlite3:map(Assoc, SQLCmd, texas:connection(Conn)) of
         [] -> [];
-        Data -> lists:map(fun(D) -> Table:new(D) end, Data)
+        Data -> lists:map(fun(D) -> Table:new(Conn, D) end, Data)
       end
   end.
 
@@ -104,7 +105,7 @@ update(Conn, Table, Record, UpdateData) ->
             end
         end, [], Table:fields()), " AND "),
   Set = join(UpdateData, ", "),
-  SQLCmd = "UPDATE " ++ atom_to_list(Table) ++ " SET " ++ Set ++ " WHERE " ++ Where ++ ";",
+  SQLCmd = "UPDATE " ++ texas_sql:to_sql_field(Table, ?FIELD_SEPARATOR) ++ " SET " ++ Set ++ " WHERE " ++ Where ++ ";",
   lager:debug("~s", [SQLCmd]),
   case exec(SQLCmd, Conn) of
     ok -> 
@@ -128,14 +129,14 @@ delete(Conn, Table, Record) ->
 % Private --
 
 exec(SQL, Conn) ->
-  case esqlite3:exec(SQL, Conn) of
+  case esqlite3:exec(SQL, texas:connection(Conn)) of
     {error, _} -> error;
     _ -> ok
   end.
 
 join(KVList, Sep) ->
   string:join(lists:map(fun({K, V}) ->
-          io_lib:format("~p = ~p", [K, texas_sql:to_sql_string(V, ?STRING_SEPARATOR, ?STRING_QUOTE)])
+          io_lib:format("~p = ~s", [K, texas_sql:to_sql_string(V, ?STRING_SEPARATOR, ?STRING_QUOTE)])
       end, KVList), Sep).
 
 sql(create_table, Name, ColDefs) -> 
@@ -165,7 +166,7 @@ sql(type, _) -> " TEXT";
 sql(autoinc, {ok, true}) -> " PRIMARY KEY AUTOINCREMENT";
 sql(notnull, {ok, true}) -> " NOT NULL";
 sql(unique, {ok, true}) -> " UNIQUE";
-sql(default, {ok, Value}) -> io_lib:format(" DEFAULT ~p", [texas_sql:to_sql_string(Value, ?STRING_SEPARATOR, ?STRING_QUOTE)]);
+sql(default, {ok, Value}) -> io_lib:format(" DEFAULT ~s", [texas_sql:to_sql_string(Value, ?STRING_SEPARATOR, ?STRING_QUOTE)]);
 sql(clause, Clauses) when is_list(Clauses) ->
   lists:map(fun(Clause) -> sql(clause, Clause) end, Clauses);
 sql(clause, {Type, Str, Params}) ->
