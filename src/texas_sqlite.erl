@@ -175,14 +175,19 @@ exec(SQL, Conn) ->
   end.
 
 sql(create_table, Name, ColDefs) -> 
-  "CREATE TABLE IF NOT EXISTS " ++ Name ++ " (" ++ string:join(ColDefs, ", ") ++ ");".
+  "CREATE TABLE IF NOT EXISTS " ++ Name ++ " (" ++ string:join(ColDefs, ", ") ++ ");";
+sql(default, date, {ok, now}) -> " DEFAULT CURRENT_DATE";
+sql(default, time, {ok, now}) -> " DEFAULT CURRENT_TIME";
+sql(default, datetime, {ok, now}) -> " DEFAULT CURRENT_TIMESTAMP";
+sql(default, _, {ok, Value}) -> io_lib:format(" DEFAULT ~s", [texas_sql:sql_string(Value, ?MODULE)]);
+sql(default, _, _) -> "".
 sql(column_def, Name, Type, Autoincrement, NotNull, Unique, Default) ->
   Name ++ 
   sql(type, Type) ++ 
   sql(autoinc, Autoincrement) ++ 
   sql(notnull, NotNull) ++
   sql(unique, Unique) ++
-  sql(default, Default).
+  sql(default, Type, Default).
 sql(type, id) -> " INTEGER";
 sql(type, integer) -> " INTEGER";
 sql(type, string) -> " TEXT";
@@ -191,5 +196,4 @@ sql(type, _) -> " TEXT";
 sql(autoinc, {ok, true}) -> " PRIMARY KEY AUTOINCREMENT";
 sql(notnull, {ok, true}) -> " NOT NULL";
 sql(unique, {ok, true}) -> " UNIQUE";
-sql(default, {ok, Value}) -> io_lib:format(" DEFAULT ~s", [texas_sql:sql_string(Value, ?MODULE)]);
 sql(_, _) -> "".
