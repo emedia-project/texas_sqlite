@@ -3,7 +3,7 @@
 -export([start/0]).
 -export([connect/6, exec/2, close/1]).
 -export([create_table/2, create_table/3, drop_table/2]).
--export([insert/3, select/4, update/4, delete/3]).
+-export([insert/3, select/4, count/3, update/4, delete/3]).
 -export([string_separator/0, string_quote/0, field_separator/0]).
 -export([where_null/2, set_null/1]).
 
@@ -31,7 +31,7 @@ set_null(Key)  -> io_lib:format("~s = NULL", [texas_sql:sql_field(Key, ?MODULE)]
 start() ->
   ok.
 
--spec connect(string(), string(), string(), integer(), string(), any()) -> 
+-spec connect(string(), string(), string(), integer(), string(), any()) ->
   {ok, connection()} | {error, err()}.
 connect(_User, _Password, _Server, _Port, Database, _Options) ->
   lager:debug("Open database ~p", [Database]),
@@ -48,11 +48,11 @@ close(Conn) ->
 -spec create_table(connection(), tablename()) -> ok | error.
 create_table(Conn, Table) ->
   SQLCmd = sql(
-    create_table, 
-    atom_to_list(Table), 
+    create_table,
+    atom_to_list(Table),
     lists:map(fun(Field) ->
             sql(
-              column_def, 
+              column_def,
               atom_to_list(Field),
               Table:'-type'(Field),
               Table:'-autoincrement'(Field),
@@ -89,12 +89,12 @@ drop_table(Conn, Table) ->
 
 -spec insert(connection(), tablename(), data() | list()) -> data() | ok | {error, err()}.
 insert(Conn, Table, Record) ->
-  SQLCmd = "INSERT INTO " ++ 
+  SQLCmd = "INSERT INTO " ++
            texas_sql:sql_field(Table, ?MODULE) ++
            texas_sql:insert_clause(Record, ?MODULE),
   lager:debug("~s", [SQLCmd]),
   case esqlite3:insert(SQLCmd, texas:connection(Conn)) of
-    {ok, ID} -> 
+    {ok, ID} ->
       case texas_sql:defined_table(Table) of
         true ->
           case Table:'-table_pk_id'() of
@@ -106,7 +106,7 @@ insert(Conn, Table, Record) ->
     E -> E
   end.
 
--spec select(connection(), tablename(), first | all, clauses()) -> 
+-spec select(connection(), tablename(), first | all, clauses()) ->
   data() | [data()] | [] | {error, err()}.
 select(Conn, Table, Type, Clauses) ->
   SQLCmd = "SELECT * FROM " ++
@@ -114,7 +114,7 @@ select(Conn, Table, Type, Clauses) ->
            texas_sql:where_clause(texas_sql:clause(where, Clauses), ?MODULE),
            % TODO : add GROUP BY, ORDER BY, LIMIT
   lager:debug("~s", [SQLCmd]),
-  Assoc = fun(Names, Row) -> 
+  Assoc = fun(Names, Row) ->
       lists:zip(tuple_to_list(Names), tuple_to_list(Row))
   end,
   case Type of
@@ -130,13 +130,23 @@ select(Conn, Table, Type, Clauses) ->
     _ ->
       case esqlite3:map(Assoc, SQLCmd, texas:connection(Conn)) of
         [] -> [];
-        Data -> lists:map(fun(D) -> 
+        Data -> lists:map(fun(D) ->
                 case texas_sql:defined_table(Table) of
                   true -> Table:new(Conn, D);
                   _ -> D
                 end
             end, Data)
       end
+  end.
+
+-spec count(connection(), tablename(), clauses()) -> integer().
+count(Conn, Table, Clauses) ->
+  SQLCmd = "SELECT COUNT(*) FROM " ++
+           texas_sql:sql_field(Table, ?MODULE) ++
+           texas_sql:where_clause(texas_sql:clause(where, Clauses), ?MODULE),
+           case esqlite3:q(SQLCmd, [], texas:connection(Conn)) of
+    [{N}] -> N;
+    _ -> 0
   end.
 
 -spec update(connection(), tablename(), data(), [tuple()]) -> [data()] | {error, err()}.
@@ -147,7 +157,7 @@ update(Conn, Table, Record, UpdateData) ->
            texas_sql:where_clause(Record, ?MODULE),
   lager:debug("~s", [SQLCmd]),
   case exec(SQLCmd, Conn) of
-    ok -> 
+    ok ->
       UpdateRecord = lists:foldl(fun({Field, Value}, Rec) ->
               Rec:Field(Value)
           end, Record, UpdateData),
@@ -174,7 +184,7 @@ exec(SQL, Conn) ->
     _ -> ok
   end.
 
-sql(create_table, Name, ColDefs) -> 
+sql(create_table, Name, ColDefs) ->
   "CREATE TABLE IF NOT EXISTS " ++ Name ++ " (" ++ string:join(ColDefs, ", ") ++ ");";
 sql(default, date, {ok, now}) -> " DEFAULT CURRENT_DATE";
 sql(default, time, {ok, now}) -> " DEFAULT CURRENT_TIME";
@@ -182,9 +192,9 @@ sql(default, datetime, {ok, now}) -> " DEFAULT CURRENT_TIMESTAMP";
 sql(default, _, {ok, Value}) -> io_lib:format(" DEFAULT ~s", [texas_sql:sql_string(Value, ?MODULE)]);
 sql(default, _, _) -> "".
 sql(column_def, Name, Type, Autoincrement, NotNull, Unique, Default) ->
-  Name ++ 
-  sql(type, Type) ++ 
-  sql(autoinc, Autoincrement) ++ 
+  Name ++
+  sql(type, Type) ++
+  sql(autoinc, Autoincrement) ++
   sql(notnull, NotNull) ++
   sql(unique, Unique) ++
   sql(default, Type, Default).
