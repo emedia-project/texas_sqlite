@@ -1,4 +1,5 @@
 -module(texas_sqlite).
+-behaviour(texas_adapter).
 -compile([{parse_transform, lager_transform}]).
 
 -export([start/0]).
@@ -12,15 +13,6 @@
 -define(STRING_QUOTE, $').
 -define(FIELD_SEPARATOR, none).
 
--type connection() :: any().
--type err() :: any().
--type tablename() :: atom().
--type data() :: any().
--type clause_type() :: where | group | order | limit.
--type clause() :: {clause_type(), string(), [tuple()]} |
-                  {clause_type(), string(), []}.
--type clauses() :: [clause()] | [].
-
 string_separator() -> ?STRING_SEPARATOR.
 string_quote()     -> ?STRING_QUOTE.
 field_separator()  -> ?FIELD_SEPARATOR.
@@ -33,12 +25,12 @@ start() ->
   ok.
 
 -spec connect(string(), string(), string(), integer(), string(), any()) ->
-  {ok, connection()} | {error, err()}.
+  {ok, texas_adapter:connection()} | {error, texas_adapter:connection_error()}.
 connect(_User, _Password, _Server, _Port, Database, _Options) ->
   lager:debug("Open database ~p", [Database]),
   esqlite3:open(Database).
 
--spec close(connection()) -> ok | error.
+-spec close(texas_adapter:connection()) -> ok | error.
 close(Conn) ->
   esqlite3:exec("commit;", texas:connection(Conn)),
   case esqlite3:close(texas:connection(Conn)) of
@@ -46,7 +38,7 @@ close(Conn) ->
     {error, _} -> error
   end.
 
--spec create_table(connection(), tablename()) -> ok | error.
+-spec create_table(texas_adapter:connection(), texas_adapter:tablename()) -> ok | error.
 create_table(Conn, Table) ->
   SQLCmd = sql(
     create_table,
@@ -64,7 +56,7 @@ create_table(Conn, Table) ->
   lager:debug("~s", [SQLCmd]),
   exec(SQLCmd, Conn).
 
--spec create_table(connection(), tablename(), list()) -> ok | error.
+-spec create_table(texas_adapter:connection(), texas_adapter:tablename(), list()) -> ok | error.
 create_table(Conn, Table, Fields) ->
   SQLCmd = sql(
       create_table,
@@ -82,13 +74,13 @@ create_table(Conn, Table, Fields) ->
   lager:debug("~s", [SQLCmd]),
   exec(SQLCmd, Conn).
 
--spec drop_table(connection(), tablename()) -> ok | error.
+-spec drop_table(texas_adapter:connection(), texas_adapter:tablename()) -> ok | error.
 drop_table(Conn, Table) ->
   SQLCmd = "DROP TABLE IF EXISTS " ++ atom_to_list(Table),
   lager:debug("~s", [SQLCmd]),
   exec(SQLCmd, Conn).
 
--spec insert(connection(), tablename(), data() | list()) -> data() | ok | {error, err()}.
+-spec insert(texas_adapter:connection(), texas_adapter:tablename(), texas_adapter:data() | list()) -> texas_adapter:data() | ok | {error, texas_adapter:request_error()}.
 insert(Conn, Table, Record) ->
   SQLCmd = "INSERT INTO " ++
            texas_sql:sql_field(Table, ?MODULE) ++
@@ -107,8 +99,8 @@ insert(Conn, Table, Record) ->
     E -> E
   end.
 
--spec select(connection(), tablename(), first | all, clauses()) ->
-  data() | [data()] | [] | {error, err()}.
+-spec select(texas_adapter:connection(), texas_adapter:tablename(), first | all, texas_adapter:clauses()) ->
+  texas_adapter:data() | [texas_adapter:data()] | [] | {error, texas_adapter:request_error()}.
 select(Conn, Table, Type, Clauses) ->
   SQLCmd = "SELECT * FROM " ++
            texas_sql:sql_field(Table, ?MODULE) ++
@@ -140,7 +132,7 @@ select(Conn, Table, Type, Clauses) ->
       end
   end.
 
--spec count(connection(), tablename(), clauses()) -> integer().
+-spec count(texas_adapter:connection(), texas_adapter:tablename(), texas_adapter:clauses()) -> integer().
 count(Conn, Table, Clauses) ->
   SQLCmd = "SELECT COUNT(*) FROM " ++
            texas_sql:sql_field(Table, ?MODULE) ++
@@ -150,7 +142,7 @@ count(Conn, Table, Clauses) ->
     _ -> 0
   end.
 
--spec update(connection(), tablename(), data(), [tuple()]) -> [data()] | {error, err()}.
+-spec update(texas_adapter:connection(), texas_adapter:tablename(), texas_adapter:data(), [tuple()]) -> [texas_adapter:data()] | {error, texas_adapter:request_error()}.
 update(Conn, Table, Record, UpdateData) ->
   SQLCmd = "UPDATE " ++
            texas_sql:sql_field(Table, ?MODULE) ++
@@ -166,7 +158,7 @@ update(Conn, Table, Record, UpdateData) ->
     error -> {error, update_error}
   end.
 
--spec delete(connection(), tablename(), data()) -> ok | {error, err()}.
+-spec delete(texas_adapter:connection(), texas_adapter:tablename(), texas_adapter:data()) -> ok | {error, texas_adapter:request_error()}.
 delete(Conn, Table, Record) ->
   SQLCmd = "DELETE FROM " ++
            texas_sql:sql_field(Table, ?MODULE) ++
